@@ -107,7 +107,11 @@
 // 1. CONSTANTS & CONFIG
 // ============================================================
 const W = 800, H = 600;
-const STATE = { TITLE: 'TITLE', PLAYING: 'PLAYING', LEVELUP: 'LEVELUP', SHOP: 'SHOP', GAMEOVER: 'GAMEOVER' };
+const STATE = { TITLE: 'TITLE', PLAYING: 'PLAYING', LEVELUP: 'LEVELUP', SHOP: 'SHOP', GAMEOVER: 'GAMEOVER', PAUSED: 'PAUSED' };
+
+const SHOCKWAVE_RADIUS   = 150;
+const SHOCKWAVE_COOLDOWN = 8;
+const SHOCKWAVE_DURATION = 0.35;
 
 const ENEMY_TYPES = {
   GRUNT: {
@@ -260,6 +264,7 @@ class Player {
     this.shield = G.upgrades.shield > 0;
     this.speedBoost = 0;
     this.rapidFire = 0;
+    this.shockwaveCooldown = 0;
     this.applyUpgrades();
   }
   applyUpgrades() {
@@ -279,6 +284,7 @@ class Player {
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
     if (this.speedBoost > 0) this.speedBoost -= dt;
     if (this.rapidFire > 0) this.rapidFire -= dt;
+    if (this.shockwaveCooldown > 0) this.shockwaveCooldown -= dt;
 
     // Movement
     let dx = 0, dy = 0;
@@ -315,6 +321,22 @@ class Player {
       bullets.push(new Bullet(bx, by, a, this.bulletSpeed, this.bulletDamage, this.piercing));
     }
     spawnMuzzleFlash(this.x + Math.cos(this.angle) * 12, this.y + Math.sin(this.angle) * 12, this.angle);
+  }
+  triggerShockwave() {
+    if (this.shockwaveCooldown > 0) return;
+    this.shockwaveCooldown = SHOCKWAVE_COOLDOWN;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      const dx = e.x - this.x, dy = e.y - this.y;
+      if (Math.sqrt(dx * dx + dy * dy) <= SHOCKWAVE_RADIUS) {
+        e.takeDamage(e.type === 'TANK' ? 80 : 9999);
+      }
+    }
+    shockwaveAnim.active = true;
+    shockwaveAnim.x = this.x; shockwaveAnim.y = this.y;
+    shockwaveAnim.radius = 0; shockwaveAnim.timer = 0;
+    shake.timer = 0.4; shake.magnitude = 10;
+    spawnExplosion(this.x, this.y, '#a0d0ff', 24);
   }
   takeDamage(dmg) {
     if (this.iframes > 0) return;
@@ -829,6 +851,7 @@ let levelupTimer = 0;
 const LEVELUP_DURATION = 2.0;
 
 const shake = { timer: 0, magnitude: 0 };
+const shockwaveAnim = { active: false, x: 0, y: 0, radius: 0, maxRadius: SHOCKWAVE_RADIUS, timer: 0, duration: SHOCKWAVE_DURATION };
 
 function setState(s) {
   state = s;
@@ -862,6 +885,17 @@ const input = { keys: {}, mouse: { x: W / 2, y: H / 2, down: false } };
 
 document.addEventListener('keydown', e => {
   input.keys[e.key.toLowerCase()] = true;
+  if (e.key === 'Escape') {
+    if (state === STATE.PLAYING) setState(STATE.PAUSED);
+    else if (state === STATE.PAUSED) setState(STATE.PLAYING);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === ' ' && state === STATE.PLAYING && player) {
+    player.triggerShockwave();
+    e.preventDefault();
+    return;
+  }
   e.preventDefault();
 });
 document.addEventListener('keyup', e => {
@@ -899,6 +933,7 @@ function loop(ts) {
   switch (state) {
     case STATE.TITLE:    renderTitle(); break;
     case STATE.PLAYING:  updatePlaying(dt); renderPlaying(); break;
+    case STATE.PAUSED:   renderPlaying(); renderPauseOverlay(); break;
     case STATE.LEVELUP:  updateLevelup(dt); renderLevelup(); break;
     case STATE.SHOP:     renderShopBg(); break;
     case STATE.GAMEOVER: renderGameOver(); break;
@@ -964,6 +999,13 @@ function updatePlaying(dt) {
   // Screen shake
   if (shake.timer > 0) shake.timer -= dt;
 
+  // Shockwave animation
+  if (shockwaveAnim.active) {
+    shockwaveAnim.timer += dt;
+    shockwaveAnim.radius = (shockwaveAnim.timer / shockwaveAnim.duration) * shockwaveAnim.maxRadius;
+    if (shockwaveAnim.timer >= shockwaveAnim.duration) shockwaveAnim.active = false;
+  }
+
   // Wave spawner
   updateWaveSpawner(dt);
 
@@ -1003,6 +1045,24 @@ function renderPlaying() {
   for (const e of enemies) e.draw(ctx);
   for (const b of bullets) b.draw(ctx);
   drawParticles(ctx);
+
+  // Shockwave ring
+  if (shockwaveAnim.active) {
+    const t = 1 - shockwaveAnim.timer / shockwaveAnim.duration;
+    ctx.globalAlpha = t * 0.85;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4 + t * 6;
+    ctx.beginPath();
+    ctx.arc(shockwaveAnim.x, shockwaveAnim.y, shockwaveAnim.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = '#88ccff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(shockwaveAnim.x, shockwaveAnim.y, shockwaveAnim.radius * 0.8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
   if (player) player.draw(ctx);
 
   ctx.restore(); // End shake context
@@ -1050,8 +1110,9 @@ function renderTitle() {
 
   ctx.fillStyle = '#666';
   ctx.font = '14px monospace';
-  ctx.fillText('WASD / Arrow Keys to move  •  Mouse to aim  •  Click to shoot', W / 2, 420);
-  ctx.fillText('Defeat all waves to reach the shop  •  Buy upgrades to survive', W / 2, 445);
+  ctx.fillText('WASD to move  •  Mouse to aim  •  Click to shoot', W / 2, 410);
+  ctx.fillText('SPACE — shockwave blast  •  ESC — pause', W / 2, 432);
+  ctx.fillText('Defeat all waves to reach the shop  •  Buy upgrades to survive', W / 2, 454);
 }
 
 function renderLevelup() {
@@ -1075,6 +1136,18 @@ function renderLevelup() {
   ctx.fillStyle = '#555';
   ctx.font = '16px monospace';
   ctx.fillText('Starting in...', W / 2, H / 2 + 100);
+}
+
+function renderPauseOverlay() {
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 64px monospace';
+  ctx.fillText('PAUSED', W / 2, H / 2 - 20);
+  ctx.fillStyle = '#888';
+  ctx.font = '18px monospace';
+  ctx.fillText('Press ESC to resume', W / 2, H / 2 + 30);
 }
 
 function renderShopBg() {
@@ -1136,8 +1209,30 @@ function drawHUD(ctx) {
     ctx.fillText('S', hpX + hpW + 12, hpY + hpH / 2 + 3);
   }
 
+  // Shockwave cooldown bar
+  const swX = hpX, swY = hpY + hpH + 5;
+  const swW = 150, swH = 8;
+  const swReady = player.shockwaveCooldown <= 0;
+  const swPct = swReady ? 1 : 1 - (player.shockwaveCooldown / SHOCKWAVE_COOLDOWN);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(swX, swY, swW, swH);
+  ctx.fillStyle = swReady ? '#88ccff' : '#336688';
+  ctx.fillRect(swX, swY, swW * swPct, swH);
+  if (swReady) {
+    // Pulse glow when ready
+    ctx.fillStyle = `rgba(168,220,255,${0.3 * Math.abs(Math.sin(Date.now() * 0.004))})`;
+    ctx.fillRect(swX, swY, swW, swH);
+  }
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(swX, swY, swW, swH);
+  ctx.fillStyle = swReady ? '#ffffff' : '#7aabb8';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(swReady ? 'SPACE  \u26a1 READY' : `SPACE  ${player.shockwaveCooldown.toFixed(1)}s`, swX + 3, swY + 7);
+
   // Active powerup indicators
-  let pY = hpY + hpH + 6;
+  let pY = swY + swH + 6;
   if (player.speedBoost > 0) {
     ctx.fillStyle = '#44aaff';
     ctx.font = '10px monospace';
