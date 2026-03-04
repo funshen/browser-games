@@ -17,15 +17,32 @@ No build step, no `npm install`, no local server needed.
 
 ## Git Workflow
 
-Always commit after meaningful changes and push to GitHub immediately:
+**After every meaningful change, commit and push immediately.** This is non-negotiable — we never leave work uncommitted. Every feature, fix, or improvement gets its own commit so we can always revert to a known-good state.
 
 ```bash
 git add <file>
-git commit -m "descriptive message"
+git commit -m "short imperative summary
+
+Optional body explaining the why, not the what.
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 git push
 ```
 
 Remote: `https://github.com/funshen/browser-games` (branch: `main`)
+
+### Commit message rules
+- First line: short imperative phrase, ≤72 chars (e.g. `Add boss enemy with charge attack`)
+- Use the body to explain *why* or list notable details when the change is non-trivial
+- One logical change per commit — don't bundle unrelated edits
+- Always push immediately after committing; the remote is the backup
+
+### When to commit
+- After adding any new feature or ability
+- After fixing a bug
+- After any balance/tuning pass
+- After updating CLAUDE.md or other docs
+- Before starting a risky or experimental change (so there's a clean rollback point)
 
 ## Architecture: shooter.html
 
