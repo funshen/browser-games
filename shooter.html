@@ -991,7 +991,18 @@ function updatePlaying(dt) {
   if (player) {
     for (const e of enemies) {
       if (Math.abs(e.x - player.x) < (e.w + player.w) / 2 && Math.abs(e.y - player.y) < (e.h + player.h) / 2) {
-        player.takeDamage(e.damage * dt);
+        if (player.shield) {
+          player.shield = false;
+          G.upgrades.shield = 0;
+          spawnHitSparks(player.x, player.y, '#aaddff', 12);
+        } else {
+          player.hp -= e.damage * dt;
+          shake.timer = 0.15; shake.magnitude = 4;
+          if (player.hp <= 0) {
+            player.hp = 0;
+            setState(STATE.GAMEOVER);
+          }
+        }
       }
     }
   }
